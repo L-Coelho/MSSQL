@@ -5,31 +5,30 @@ IF NOT EXISTS ( SELECT  * FROM    sys.schemas  WHERE   name = N'audit' )
     EXEC('CREATE SCHEMA [audit] AUTHORIZATION [dbo]');
 GO
 
-/****** Object:  StoredProcedure [audit].[usp_gather_default_trace]   ******/
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = 'usp_gather_default_trace')
+	EXEC ('CREATE PROC audit.usp_gather_default_trace AS SELECT ''stub version, to be replaced''')
+GO
 SET ANSI_NULLS ON
 GO
-
 SET QUOTED_IDENTIFIER ON
 GO
-
-
-
 -- =============================================
 -- Author:		<Luis Coelho>
 -- Create date: <06/10/2020>
 -- Description:	<Gather Information about Database Extends and objects and users from default trace>
 -- V.01 <08/01/2021>
+-- V.02 <01/04/2021> 
+-- Repair error in collation SQL_Latin1_General_CP1_CS_AS -- Invalid column name 'xxx' --
 -- Usage Examples:
 -- Display the records from the Audit Trace on the last 30 days
 -- exec [audit].[usp_gather_default_trace] @hours=720 < Note: Need to convert previously hours in days, in this example is 30 days >
 -- Create a table if not exists and dumps the output of the default trace on it
 -- exec [audit].[usp_gather_default_trace] @permanent=1 < Note: will retain the value in Variable @hours >
--- Define the Retention off data in table
--- exec [audit].[usp_gather_default_trace] @defaultpurge VARCHAR(5)=30 < Note: will purge data below the value in Variable @defaultpurge >
 -- =============================================
-CREATE PROCEDURE [audit].[usp_gather_default_trace]
+ALTER PROCEDURE [audit].[usp_gather_default_trace]
 	-- Parameters for the stored procedure --
-	@permanent BIT =0, @hours INT=24,@purge INT=1,@defaultpurge VARCHAR(5)=275,
+	@permanent BIT =0, @hours INT=24,@purge INT=1,@defaultpurge VARCHAR(5)=180,
 	@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='audit',@table VARCHAR(100)='default_trace'
 AS
 BEGIN
@@ -67,35 +66,7 @@ BEGIN
 	RETURN;
 END;
 
-/* Purging Data*/
-
-IF @purge=1
-BEGIN
---Print 'I will Purge Data'
-Print 'Ckeck if Control Table Purge Exists'
-IF EXISTS (SELECT name FROM sys.objects WHERE name ='PurgeData' AND schema_id=1 AND type='U')
-	BEGIN
-	PRINT 'Purge Table Exists'
-	DECLARE @retain int
-	SELECT @retain=[RetainDays] from [dbo].[PurgeData] (nolock) where [SchemaName] = 'audit' and [TableName] ='default_trace' and isActive=1
-	--print @retain
-	PRINT 'Purging Data'
-	Delete from [audit].[default_trace] where [StartTime] <=getdate()-@retain
-	END
-ELSE 
-	PRINT 'The control table does not exists , i will purge the values in the SP';
-	--select * from @schema.@table where [StartTime] <=getdate()-10
-	DECLARE @msg2 VARCHAR(8000);
-	SET @msg2 = 'DELETE FROM ['+ @database+ '].['+@schema+'].['+@table+'] where [StartTime] <=getdate()-'+@defaultpurge+''
-	--print @msg2
-	EXEC (@msg2)
-END
-ELSE
-BEGIN
-Print 'I will do nothing'
-END
-
-	DECLARE @value VARCHAR(max)
+DECLARE @value VARCHAR(max)
 
 SELECT @value = Substring(path, 0, Len(path)-Charindex('\', Reverse(path))+1) + '\Log.trc'
 FROM   sys.traces
@@ -110,32 +81,32 @@ IF Object_id('tempdb..#Temptrace2') IS NOT NULL
 IF Object_id('tempdb..#Temptracefinal') IS NOT NULL
   DROP TABLE #temptracefinal
 
-SELECT ftg.spid                                                 AS SPID,
-       ftg.starttime                                            AS StartTime,
-       ftg.databasename                                         AS DatabaseName,
+SELECT ftg.SPID                                                 AS Spid,
+       ftg.StartTime                                            AS StartTime,
+       ftg.DatabaseName                                         AS DatabaseName,
        Cast(NULL AS NVARCHAR(256)) COLLATE latin1_general_ci_as AS Filename,
        Cast(NULL AS DECIMAL(10, 2))                             AS TimeTakenSeconds,
        Cast(NULL AS DECIMAL(18, 6))                             AS ChangeSizeMB,
        te.[name]                                                AS EventClass,
        tcg.[name]                                               AS Category,
        sv.[name] COLLATE latin1_general_ci_as                   AS ObjectType,
-       ftg.objectname                                           AS ObjectName,
+       ftg.ObjectName                                           AS ObjectName,
        CONVERT(VARCHAR(10), tsv.subclass_value)
        + ' - ' + tsv.subclass_name COLLATE latin1_general_ci_as AS EventSubClass,
-       ftg.textdata                                             AS TextData,
-       ftg.hostname                                             AS HostName,
-       ftg.applicationname                                      AS ApplicationName,
-       ftg.loginname                                            AS LoginName,
-       ftg.servername                                           AS ServerName,
-       ftg.ownername                                            AS OwnerName,
+       ftg.TextData                                             AS TextData,
+       ftg.HostName                                             AS HostName,
+       ftg.ApplicationName                                      AS ApplicationName,
+       ftg.LoginName                                            AS LoginName,
+       ftg.ServerName                                           AS ServerName,
+       ftg.OwnerName                                            AS OwnerName,
        ftg.rolename                                             AS RoleName,
-       ftg.targetusername                                       AS TargetUserName,
-       ftg.targetloginname                                      AS TargetLoginName,
-       ftg.linkedservername                                     AS LinkedServerName
+       ftg.TargetUserName                                       AS TargetUserName,
+       ftg.TargetLoginName                                      AS TargetLoginName,
+       ftg.LinkedServerName                                     AS LinkedServerName
 INTO   #temptrace1
 FROM   ::fn_trace_gettable(@value, DEFAULT) AS ftg
        INNER JOIN sys.trace_events AS te
-               ON ftg.eventclass = te.trace_event_id
+               ON ftg.EventClass = te.trace_event_id
        LEFT JOIN sys.trace_subclass_values AS tsv
               ON te.trace_event_id = tsv.trace_event_id
        INNER JOIN sys.trace_columns AS tc
@@ -158,34 +129,34 @@ WHERE  tc.[name] = 'EventSubClass'
        -- more filter types see
 --https://sqlquantumleap.com/reference/server-audit-filter-values-for-class_type/
        AND ftg.databasename <> 'tempdb'
-ORDER  BY ftg.starttime
+ORDER  BY ftg.StartTime
 
 -- Gather information From Autoextends
-SELECT ftg.spid                                      AS SPID,
-       ftg.starttime                                 AS StartTime,
-       ftg.databasename                              AS DatabaseName,
-       filename COLLATE latin1_general_ci_as         AS Filename,
+SELECT ftg.SPID                                      AS Spid,
+       ftg.StartTime                                 AS StartTime,
+       ftg.DatabaseName                              AS DatabaseName,
+       Filename COLLATE latin1_general_ci_as         AS Filename,
        CONVERT(DECIMAL(10, 2), duration / 1000000e0) AS TimeTakenSeconds,
        ( integerdata * 8.0 / 1024 )                  AS ChangeSizeMB,
        te.[name]                                     AS EventClass,
        tcg.[name]                                    AS Category,
        'EXTEND\SHRINK' COLLATE latin1_general_ci_as  AS ObjectType,
-       ftg.objectname                                AS ObjectName,
+       ftg.ObjectName                                AS ObjectName,
        '1 - Commit' COLLATE latin1_general_ci_as     AS EventSubClass,
-       ftg.textdata                                  AS TextData,
-       ftg.hostname                                  AS HostName,
-       ftg.applicationname                           AS ApplicationName,
-       ftg.loginname                                 AS LoginName,
-       ftg.servername                                AS ServerName,
-       ftg.ownername                                 AS OwnerName,
-       ftg.rolename                                  AS RoleName,
-       ftg.targetusername                            AS TargetUserName,
-       ftg.targetloginname                           AS TargetLoginName,
-       ftg.linkedservername                          AS LinkedServerName
+       ftg.TextData                                  AS TextData,
+       ftg.HostName                                  AS HostName,
+       ftg.ApplicationName                           AS ApplicationName,
+       ftg.LoginName                                 AS LoginName,
+       ftg.ServerName                                AS ServerName,
+       ftg.OwnerName                                 AS OwnerName,
+       ftg.RoleName                                  AS RoleName,
+       ftg.TargetUserName                            AS TargetUserName,
+       ftg.TargetLoginName                           AS TargetLoginName,
+       ftg.LinkedServerName                          AS LinkedServerName
 INTO   #temptrace2
 FROM   ::fn_trace_gettable(@value, DEFAULT) ftg
        INNER JOIN sys.trace_events AS te
-               ON ftg.eventclass = te.trace_event_id
+               ON ftg.EventClass = te.trace_event_id
        LEFT JOIN sys.trace_subclass_values AS tsv
               ON te.trace_event_id = tsv.trace_event_id
        INNER JOIN sys.trace_categories tcg
@@ -195,64 +166,64 @@ WHERE  ftg.eventclass IN ( 116 )
         OR ( te.trace_event_id >= 92
              AND te.trace_event_id <= 95 )
 /* 92 – Data File Auto Grow \ 93 – Log File Auto Grow \ 94 – Data File Auto Shrink \95 – Log File Auto Shrink */
-ORDER  BY ftg.starttime;
+ORDER  BY ftg.StartTime;
 
 SELECT
-spid,
-starttime,
-databasename,
-filename,
-timetakenseconds,
-changesizemb,
-eventclass,
-category,
-objecttype,
-objectname,
-eventsubclass,
-textdata,
-hostname,
-applicationname,
-loginname,
-servername,
-ownername,
-rolename,
-targetusername,
-targetloginname,
-linkedservername
+Spid,
+StartTime,
+DatabaseName,
+Filename,
+TimeTakenSeconds,
+ChangeSizeMB,
+EventClass,
+Category,
+ObjectType,
+ObjectName,
+EventSubClass,
+TextData,
+HostName,
+ApplicationName,
+LoginName,
+ServerName,
+OwnerName,
+RoleName,
+TargetUserName,
+TargetLoginName,
+LinkedServerName
 INTO   #temptracefinal
 FROM   #temptrace1
-WHERE  COALESCE(objectname, '') NOT LIKE 'GSD331%'
+WHERE  COALESCE(ObjectName, '') NOT LIKE 'GSD331%'
 UNION ALL
-SELECT spid,
-       starttime,
-       databasename,
-       filename COLLATE latin1_general_ci_as,
-       timetakenseconds,
-       changesizemb,
-       eventclass,
-       category,
-       objecttype COLLATE latin1_general_ci_as,
-       objectname,
-       eventsubclass COLLATE latin1_general_ci_as,
-       textdata,
-       hostname,
-       applicationname,
-       loginname,
-       servername,
-       ownername,
-       rolename,
-       targetusername,
-       targetloginname,
-       linkedservername
+SELECT Spid,
+       StartTime,
+       DatabaseName,
+       Filename COLLATE latin1_general_ci_as,
+       TimeTakenSeconds,
+	   ChangeSizeMB,
+       EventClass,
+       Category,
+       ObjectType COLLATE latin1_general_ci_as,
+       ObjectName,
+       EventSubClass COLLATE latin1_general_ci_as,
+       TextData,
+       HostName,
+       ApplicationName,
+       LoginName,
+       ServerName,
+       OwnerName,
+       RoleName,
+       TargetUserName,
+       TargetLoginName,
+       LinkedServerName
 FROM   #temptrace2
-ORDER  BY starttime
+ORDER  BY StartTime
 
 
 IF @permanent=0
 BEGIN
 Print  'Display Only Rows'
 SELECT * FROM   #temptracefinal
-where #temptracefinal.starttime > DateAdd(hour, -@hours, GETDATE()) order by starttime asc
+where #temptracefinal.StartTime > DateAdd(hour, -@hours, GETDATE()) order by StartTime asc
 END;
 ELSE
 BEGIN
@@ -314,12 +285,26 @@ CHAR(13) +
 '([Spid],[StartTime],[DatabaseName],[Filename],[TimetakenSeconds],[ChangeSizeMB],[EventClass],[Category],[ObjectType],[ObjectName],[EventSubClass],[Textdata],[HostName],[ApplicationName],[LoginName],[ServerName],[OwnerName],[RoleName],[TargetUsername],[TargetLoginName],[LinkedServerName]
 ) ' +
 	'SELECT
-spid,starttime,databasename,filename,timetakenseconds,changesizemb,eventclass,category,objecttype,objectname,eventsubclass,textdata,hostname,applicationname,loginname,servername,ownername,rolename,targetusername,targetloginname,linkedservername
-FROM #temptracefinal where #temptracefinal.starttime > DateAdd(hour, -' + CAST(@hours AS NVARCHAR) + ','
-+'GETDATE()) order by starttime asc' + ';' + CHAR(13) +
+Spid,StartTime,DatabaseName,Filename,TimeTakenSeconds,ChangeSizeMB,EventClass,Category,ObjectType,ObjectName,EventSubClass,TextData,HostName,ApplicationName,LoginName,ServerName,OwnerName,RoleName,TargetUserName,TargetLoginName,LinkedServerName
+FROM #temptracefinal where #temptracefinal.StartTime > DateAdd(hour, -' + CAST(@hours AS NVARCHAR) + ','
++'GETDATE()) order by StartTime asc' + ';' + CHAR(13) +
 	'SET IDENTITY_INSERT  ' + @database +  '.' + @schema +  '.'+ @table +  ' ON' + ';'
     EXEC sp_executesql @sqlinsert
 	--Print @sqlinsert
+	/* Purging Data*/
+IF @purge=1
+BEGIN
+	PRINT 'Purge Data from the values in the SP';
+	--select * from @schema.@table where [StartTime] <=getdate()-10
+	DECLARE @msg2 VARCHAR(8000);
+	SET @msg2 = 'DELETE FROM ['+ @database+ '].['+@schema+'].['+@table+'] where [StartTime] <=getdate()-'+@defaultpurge+''
+	EXEC (@msg2)
+END
+ELSE
+BEGIN
+Print 'I will do no purging in the table'
+END
+
 END
 
 DROP TABLE #temptrace1
