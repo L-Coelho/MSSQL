@@ -1,5 +1,5 @@
 ﻿<# 
-Authors : Luis Coelho 
+Authors : Luis Coelho & Hugo Dinis
 Based on Alexandru-Codrin Panaite in : https://stackoverflow.com/questions/7516337/powershell-list-all-sql-instances-on-my-system
 V1.01 (18/03/2021) 
 # Collects information about local instances on the server such as :
