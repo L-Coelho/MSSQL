@@ -24,7 +24,7 @@ GO
 
 ALTER PROCEDURE [perf].[CaptureCpuMetrics]
 -- Parameters for the stored procedure --
-	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=256,
+	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=365,
 	@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='perf',@table
 VARCHAR(100)='CpuMetrics',
 	@minutes INT=60,@help BIT = 0
