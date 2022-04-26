@@ -31,9 +31,7 @@ GO
 */
 alter PROCEDURE [space].[TableDetails]
 -- Parameters for the stored procedure --
-	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=600,
-	@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='space',@table
-VARCHAR(100)='TableSpace', @dbname VARCHAR(200) = NULL, @diary BIT =0, @Weekday INT = 1
+	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=190,@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='space',@table VARCHAR(100)='TableSpace', @dbname VARCHAR(200) = NULL, @diary BIT =0, @Weekday INT = 1
 
 /*
 Day of the week is:
