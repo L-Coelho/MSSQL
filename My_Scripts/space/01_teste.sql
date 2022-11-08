@@ -1,20 +1,12 @@
 USE [dba_database]
 GO
 
-/****** Object:  StoredProcedure [space].[GetDiskSpace_new]    Script Date: 11/4/2022 5:24:16 PM ******/
+/****** Object:  StoredProcedure [space].[GetDiskSpace]    Script Date: 11/8/2022 3:41:36 PM ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
-
-
-
-
-
-
-
-
 
 
 -- =============================================
@@ -31,8 +23,9 @@ GO
 -- exec [space].[GetDiskSpace]
 -- Display and Save disk Space to a table
 -- exec [space].[GetDiskSpace] @permanent=1 @database='dba_database',@schema='space',@table='DiskSpace'
--- Alter date: <10/06/2022>
--- Version 0.4 - Generate Mail Alerts based on a threshold
+-- Alter date: <08/11/2022>
+-- Version 0.4 - Generate Mail Alerts based on a threshold and excluded disks
+-- exec [space].[GetDiskSpace] @permanent=1 @database='dba_database',@schema='space',@table='DiskSpace',@alert=1,@mailprofile='<profile_name>',@recipients ='<email_to_send>',@excludeddisks='<disks_to_excluded>'
 
 -- =============================================
 
@@ -45,11 +38,11 @@ GO
                                           | |                   
                                           |_|
 */
-ALTER PROCEDURE [space].[GetDiskSpace_new]
+ALTER PROCEDURE [space].[GetDiskSpace]
 -- Parameters for the stored procedure --
 	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=600,
 	@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='space',@table VARCHAR(100)='DiskSpace',
-	@Alert BIT=0,@Mailprofile VARCHAR(100)=NULL,@Recipients VARCHAR(200)=NULL,@ExcludedDisks NVARCHAR(500)=NULL,@PctDiskFree INT=50
+	@Alert BIT=0,@Mailprofile VARCHAR(100)=NULL,@Recipients VARCHAR(200)=NULL,@ExcludedDisks VARCHAR(500)=NULL,@PctDiskFree INT=50
 
 
 AS
@@ -98,22 +91,20 @@ BEGIN
         ELSE 1
        END;
 
-	   	print ' tipo_profile'
-		PRINT @validprofile
+	 --  	print ' tipo_profile'
+		--PRINT @validprofile
 
-		/* Check if output database exists in the server and abort in the case that it doesn't exists*/
-
-		IF @ExcludedDisks is not null
+IF @ExcludedDisks is not null
 		BEGIN
-		print ' transforming disk'
+		--print ' transforming disk'
 		SET @ExcludedDisks=''''+REPLACE(@ExcludedDisks,',',''',''')+''''
 		END
 
-		PRINT 'excluded disks'
-		PRINT @ExcludedDisks
-
 		-- final table ( Created because Arithmetic Overflow )
 		CREATE TABLE #final (VolumeName varchar(100),Capacity_GB int,Free_Space_GB int,Free_Space_Pct numeric(6,2),SysDate datetime)
+
+		-- alert table ( Created because Arithmetic Overflow )
+	   CREATE TABLE #alert (VolumeName varchar(100),Capacity_GB int,Free_Space_GB int,Free_Space_Pct numeric(6,2),SysDate datetime)
 		
 
 	IF @permanent=1
@@ -247,11 +238,7 @@ IF @permanent=1
 END
 ELSE
 BEGIN
-
---SELECT VolumeName,Capacity_GB,Free_Space_GB,Free_Space_Pct,SysDate FROM #final
-PRINT ' Nothing to do now'
-
-
+SELECT VolumeName,Capacity_GB,Free_Space_GB,Free_Space_Pct,SysDate FROM #final
 END
 
 END
@@ -275,13 +262,9 @@ total_bytes) as decimal (4,4))*100 as decimal(4,2)) as Free_Space_Pct,
 		from  sys.master_files as f cross apply sys.dm_os_volume_stats(f.database_id, f.file_id) vs' + CHAR(13) +
 	'SET IDENTITY_INSERT  ' + @database +  '.' + @schema +  '.'+ @table +  ' ON' + ';'
     EXEC sp_executesql @sqlinsert1
-	
-END
 
-ELSE
--- Sql version 2012 or later
-BEGIN
-SELECT DISTINCT
+	insert into #final
+	SELECT DISTINCT
 			   volume_mount_point VolumeName,
 			   total_bytes/1024/1024/1024 Capacity_GB,
 			   available_bytes/1024/1024/1024 Free_Space_GB,
@@ -289,16 +272,12 @@ SELECT DISTINCT
 total_bytes) as decimal (4,4))*100 as decimal(4,2)) as Free_Space_Pct,
 			   getdate() as SysDate
 		FROM  sys.master_files AS f cross apply sys.dm_os_volume_stats(f.database_id, f.file_id) vs
+	
 END
-DECLARE @tableHTML  NVARCHAR(MAX) ;  
 
-DECLARE @subject  varchar(max)
-
-/* Alerts*/
-IF @sqlversion>=11
-IF (@Alert=1 and @validprofile=1 )
+ELSE
+-- Sql version 2012 or later
 BEGIN
-Print 'vou tratar os alertas que são >= 2012, pois tenho um perfil válido'
 insert into #final
 SELECT DISTINCT
 			   volume_mount_point VolumeName,
@@ -308,6 +287,42 @@ SELECT DISTINCT
 total_bytes) as decimal (4,4))*100 as decimal(4,2)) as Free_Space_Pct,
 			   getdate() as SysDate
 		FROM  sys.master_files AS f cross apply sys.dm_os_volume_stats(f.database_id, f.file_id) vs
+select * from #final
+END
+
+/* Alerts*/
+
+
+DECLARE @tableHTML  NVARCHAR(MAX) ;  
+DECLARE @subject  varchar(max)
+DECLARE @select nvarchar(max)
+
+IF (@Alert=1 and @validprofile=1 )
+BEGIN
+IF @ExcludedDisks is null
+	BEGIN
+	SET @select = '
+	insert into #alert
+	SELECT VolumeName,Capacity_GB,Free_Space_GB,Free_Space_Pct,SysDate FROM #final where Free_Space_Pct<='+cast(@PctDiskFree as varchar(5)) +'' 
+	END
+	ELSE
+	BEGIN
+	SET @select = '
+	insert into #alert
+	
+	SELECT VolumeName,Capacity_GB,Free_Space_GB,Free_Space_Pct,SysDate FROM #final where Free_Space_Pct<='+cast(@PctDiskFree as varchar(5)) +' AND VolumeName NOT IN ('+@ExcludedDisks+') '
+	
+	END
+	--print @select
+	  EXEC sp_executesql @select
+
+	  --print 'select #alert'
+	  --select * from #alert
+
+IF @sqlversion>=11
+IF (@Alert=1 and @validprofile=1 )
+BEGIN
+Print 'vou tratar os alertas que são >= 2012, pois tenho um perfil válido'
 
 		SET @tableHTML =  
 
@@ -320,10 +335,8 @@ total_bytes) as decimal (4,4))*100 as decimal(4,2)) as Free_Space_Pct,
  					td = Free_Space_GB, '',  
 					[td/@bgcolor]='"#cce6ff"',td = Free_Space_Pct, '' 
                     --td = Free_Space_Pct 
-              FROM #final
-			  where Free_Space_Pct<=@PctDiskFree
-			  and VolumeName NOT IN (@ExcludedDisks)
-			  --and VolumeName NOT IN ('C:\','F:\')
+              FROM #alert
+			  --where Free_Space_Pct<=@PctDiskFree
 			  --order by  PctFree  
 			   
               FOR XML PATH('tr'), TYPE   
@@ -336,8 +349,6 @@ total_bytes) as decimal (4,4))*100 as decimal(4,2)) as Free_Space_Pct,
     N'</table>' ;  
 --END
 
-select * from #final where Free_Space_Pct<=@PctDiskFree
-			  and VolumeName NOT IN (cast(@ExcludedDisks as varchar) )
 
 SET @subject =  ' Alert ' + @@servername + ' - Disks Below  '+ CAST (@PctDiskFree as VARCHAR) +' PCT ' 
 EXEC msdb.dbo.sp_send_dbmail @recipients=@Recipients,  
@@ -366,8 +377,8 @@ SET @tableHTML =
  					td = Free_Space_GB, '',  
 					[td/@bgcolor]='"#cce6ff"',td = Free_Space_Pct, '' 
                     --td = Free_Space_Pct 
-              FROM #final
-			  where Free_Space_Pct<=@PctDiskFree
+              FROM #alert
+			  --where Free_Space_Pct<=@PctDiskFree
 			  --order by  PctFree  
 			   
               FOR XML PATH('tr'), TYPE   
@@ -389,6 +400,11 @@ EXEC msdb.dbo.sp_send_dbmail @recipients=@Recipients,
 END
 ELSE
 Print 'Não Vou tratar os alertas que são de powershell <= 2008, pois o perfil não é válido'
+END
+ELSE
+BEGIN
+Print ' não tenho um perfil valido ou não tenho a opção de alerta activa '
+END
 
 
 IF OBJECT_ID('tempdb..#output') IS NOT NULL
@@ -399,6 +415,9 @@ DROP TABLE #results
 
 IF OBJECT_ID('tempdb..#final') IS NOT NULL
 DROP TABLE #final
+
+IF OBJECT_ID('tempdb..#alert') IS NOT NULL
+DROP TABLE #alert
 
 IF @sqlversion >=11
 BEGIN
