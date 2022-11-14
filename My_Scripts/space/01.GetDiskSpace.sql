@@ -31,7 +31,7 @@ GO
 -- exec [space].[GetDiskSpace] @permanent=1 @database='dba_database',@schema='space',@table='DiskSpace'
 -- Alter date: <08/11/2022>
 -- Version 0.4 - Generate Mail Alerts based on a threshold and excluded disks
--- exec [space].[GetDiskSpace] @alert=1,@mailprofile='<profile_name>',@recipients ='<email_to_send>',@excludeddisks='<disks_to_excluded>'
+-- exec [space].[GetDiskSpace] @alert=1,@mailprofile='<profile_name>',@recipients ='mail1@mail.xxx;mail2@mail.xxx',@excludeddisks='<disks_to_excluded>'
 
 -- =============================================
 
@@ -48,7 +48,7 @@ ALTER PROCEDURE [space].[GetDiskSpace]
 -- Parameters for the stored procedure --
 	@permanent BIT =0, @purge INT=1,@defaultpurge VARCHAR(5)=600,
 	@database VARCHAR(100)='dba_database',@schema VARCHAR(50)='space',@table VARCHAR(100)='DiskSpace',
-	@Alert BIT=0,@Mailprofile VARCHAR(100)=NULL,@Recipients VARCHAR(200)=NULL,@ExcludedDisks VARCHAR(500)=NULL,@PctDiskFree INT=8
+	@Alert BIT=0,@Mailprofile VARCHAR(100)=NULL,@Recipients VARCHAR(200)=NULL,@ExcludedDisks VARCHAR(500)=NULL,@PctDiskFree INT=10
 
 
 AS
@@ -302,7 +302,17 @@ DECLARE @tableHTML  NVARCHAR(MAX) ;
 DECLARE @subject  varchar(max)
 DECLARE @select nvarchar(max)
 
-IF (@Alert=1 and @validprofile=1 )
+
+	/* Check if there is any alert to proced */
+	DECLARE @validpct BIT
+		
+	SET @validpct =
+    CASE
+        WHEN NOT EXISTS(SELECT VolumeName,Capacity_GB,Free_Space_GB,Free_Space_Pct,SysDate FROM #final where Free_Space_Pct<=@PctDiskFree) THEN 0
+        ELSE 1
+       END;
+
+IF (@Alert=1 and @validprofile=1 and @validpct=1)
 BEGIN
 IF @ExcludedDisks is null
 	BEGIN
@@ -398,7 +408,7 @@ Print 'I will not handle the alerts SQL <= 2008, because i dont have a valid pro
 END
 ELSE
 BEGIN
-Print 'I dont have the alert option enable or a valid profile or valid recipients'
+Print 'I dont have the alert option enable or a valid profile or valid recipients or the pct free space is not <=@PctDiskFree '
 END
 
 
