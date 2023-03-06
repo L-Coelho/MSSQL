@@ -1,0 +1,14 @@
+> sp_BlitzFirst – What are the server waiting for?
+
+exec [dbo].[sp_BlitzFirst] @expertmode=1,@sincestartup=1,@checkprocedurecache=1
+
+
+> sp_BlitzWho _ Who is causing the immediate problem?
+
+
+> sp_Blitz – Is this server setup correctly?
+
+
+> sp_BlitzCache – Which queries should be tuned?
+
+> sp_BlitzIndex – How are my indexes doing?
