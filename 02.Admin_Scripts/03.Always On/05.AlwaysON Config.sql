@@ -102,7 +102,7 @@ GO
 
 -- Azure --
 
-(Get-ClusterNode "PSRGSQNOB1").NodeWeight=0
+(Get-ClusterNode "<name>").NodeWeight=0
 
 
 Probe:
@@ -116,7 +116,7 @@ Get-ClusterResource -Name "<probe_name>.<ip_probe>" | Get-ClusterParameter
 -- Configurar probe do load balancer
 $SqlIpAddress = Get-ClusterResource |
   Where-Object {$_.ResourceType -eq "IP Address"} |
-  Where-Object {$_.Name.StartsWith("PSRAZSQLAGF03")}
+  Where-Object {$_.Name.StartsWith("<name>")}
   
    
 $SqlIpAddress | Set-ClusterParameter -Multiple @{
